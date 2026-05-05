@@ -10,7 +10,9 @@ const fastify = Fastify({ logger: true });
 
 // Register CORS
 fastify.register(cors, {
-  origin: 'http://localhost:3000',
+  origin: true, // Allow all origins in development or specify 'http://localhost:3000'
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 });
 
@@ -31,11 +33,11 @@ const loginSchema = z.object({
 const authenticate = async (request, reply) => {
   try {
     const token = request.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
       throw new Error('No token provided');
     }
-    
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
@@ -47,26 +49,26 @@ const authenticate = async (request, reply) => {
         createdAt: true
       }
     });
-    
+
     if (!user) {
       throw new Error('User not found');
     }
-    
+
     request.user = user;
   } catch (error) {
-    reply.code(401).send({ 
+    reply.code(401).send({
       success: false,
-      error: 'Authentication failed. Please login again.' 
+      error: 'Authentication failed. Please login again.'
     });
   }
 };
 
 // Health check
 fastify.get('/api/health', async () => {
-  return { 
-    success: true, 
-    status: 'ok', 
-    timestamp: new Date().toISOString() 
+  return {
+    success: true,
+    status: 'ok',
+    timestamp: new Date().toISOString()
   };
 });
 
@@ -75,7 +77,7 @@ fastify.post('/api/auth/register', async (request, reply) => {
   try {
     // Validate request body
     const validationResult = registerSchema.safeParse(request.body);
-    
+
     if (!validationResult.success) {
       return reply.code(400).send({
         success: false,
@@ -83,24 +85,24 @@ fastify.post('/api/auth/register', async (request, reply) => {
         details: validationResult.error.errors
       });
     }
-    
+
     const { email, password, name, company } = validationResult.data;
-    
+
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
       where: { email }
     });
-    
+
     if (existingUser) {
-      return reply.code(400).send({ 
+      return reply.code(400).send({
         success: false,
-        error: 'User with this email already exists' 
+        error: 'User with this email already exists'
       });
     }
-    
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     // Create user
     const user = await prisma.user.create({
       data: {
@@ -117,7 +119,7 @@ fastify.post('/api/auth/register', async (request, reply) => {
         createdAt: true
       }
     });
-    
+
     // Create default categories
     const defaultCategories = [
       { name: 'Salary', type: 'INCOME', color: '#10b981' },
@@ -133,14 +135,14 @@ fastify.post('/api/auth/register', async (request, reply) => {
       { name: 'Education', type: 'EXPENSE', color: '#06b6d4' },
       { name: 'Transfer', type: 'TRANSFER', color: '#64748b' }
     ];
-    
+
     await prisma.category.createMany({
       data: defaultCategories.map(category => ({
         ...category,
         userId: user.id
       }))
     });
-    
+
     // Create default accounts
     const defaultAccounts = [
       { name: 'Cash Wallet', type: 'CASH', balance: 0, currency: 'USD' },
@@ -148,24 +150,24 @@ fastify.post('/api/auth/register', async (request, reply) => {
       { name: 'Savings Account', type: 'BANK', balance: 0, currency: 'USD' },
       { name: 'Credit Card', type: 'CREDIT_CARD', balance: 0, currency: 'USD' }
     ];
-    
+
     await prisma.account.createMany({
       data: defaultAccounts.map(account => ({
         ...account,
         userId: user.id
       }))
     });
-    
+
     // Generate JWT token
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email 
+      {
+        userId: user.id,
+        email: user.email
       },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
-    
+
     reply.code(201).send({
       success: true,
       message: 'User registered successfully',
@@ -174,12 +176,12 @@ fastify.post('/api/auth/register', async (request, reply) => {
         token
       }
     });
-    
+
   } catch (error) {
     fastify.log.error(error);
-    reply.code(500).send({ 
+    reply.code(500).send({
       success: false,
-      error: 'Registration failed. Please try again.' 
+      error: 'Registration failed. Please try again.'
     });
   }
 });
@@ -189,7 +191,7 @@ fastify.post('/api/auth/login', async (request, reply) => {
   try {
     // Validate request body
     const validationResult = loginSchema.safeParse(request.body);
-    
+
     if (!validationResult.success) {
       return reply.code(400).send({
         success: false,
@@ -197,9 +199,9 @@ fastify.post('/api/auth/login', async (request, reply) => {
         details: validationResult.error.errors
       });
     }
-    
+
     const { email, password } = validationResult.data;
-    
+
     // Find user
     const user = await prisma.user.findUnique({
       where: { email },
@@ -212,37 +214,37 @@ fastify.post('/api/auth/login', async (request, reply) => {
         createdAt: true
       }
     });
-    
+
     if (!user) {
-      return reply.code(401).send({ 
+      return reply.code(401).send({
         success: false,
-        error: 'Invalid email or password' 
+        error: 'Invalid email or password'
       });
     }
-    
+
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
-    
+
     if (!isValidPassword) {
-      return reply.code(401).send({ 
+      return reply.code(401).send({
         success: false,
-        error: 'Invalid email or password' 
+        error: 'Invalid email or password'
       });
     }
-    
+
     // Remove password from user object
     const { password: _, ...userWithoutPassword } = user;
-    
+
     // Generate JWT token
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email 
+      {
+        userId: user.id,
+        email: user.email
       },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
-    
+
     reply.send({
       success: true,
       message: 'Login successful',
@@ -251,12 +253,12 @@ fastify.post('/api/auth/login', async (request, reply) => {
         token
       }
     });
-    
+
   } catch (error) {
     fastify.log.error(error);
-    reply.code(500).send({ 
+    reply.code(500).send({
       success: false,
-      error: 'Login failed. Please try again.' 
+      error: 'Login failed. Please try again.'
     });
   }
 });
@@ -284,28 +286,78 @@ fastify.post('/api/auth/logout', { preHandler: authenticate }, async (request, r
 fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request) => {
   try {
     const userId = request.user.id;
-    const { timeRange = 'month' } = request.query;
-    
-    // Calculate date range
-    const endDate = new Date();
-    const startDate = new Date();
-    
-    switch (timeRange) {
-      case 'week':
-        startDate.setDate(endDate.getDate() - 7);
-        break;
-      case 'month':
+    const { timeRange = 'month', selectedMonth, customStartDate, customEndDate } = request.query;
+
+    // Calculate date range for selected period
+    let endDate = new Date();
+    let startDate = new Date();
+
+    if (timeRange === 'custom') {
+      if (selectedMonth) {
+        // Month selection (format: "YYYY-MM")
+        const [year, month] = selectedMonth.split('-').map(Number);
+        startDate = new Date(year, month - 1, 1);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(year, month, 0); // Last day of the month
+        endDate.setHours(23, 59, 59, 999);
+      } else if (customStartDate && customEndDate) {
+        // Date range selection
+        startDate = new Date(customStartDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(customEndDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        // Default to current month if custom is selected but no dates provided
         startDate.setMonth(endDate.getMonth() - 1);
-        break;
-      case 'quarter':
-        startDate.setMonth(endDate.getMonth() - 3);
-        break;
-      case 'year':
-        startDate.setFullYear(endDate.getFullYear() - 1);
-        break;
-      default:
-        startDate.setMonth(endDate.getMonth() - 1);
+      }
+    } else {
+      switch (timeRange) {
+        case 'week': {
+          // Start from Monday of the current week
+          const day = endDate.getDay(); // 0 = Sunday, 1 = Monday, ...
+          const diffToMonday = (day === 0 ? -6 : 1 - day); // days to go back to Monday
+          startDate = new Date(endDate);
+          startDate.setDate(endDate.getDate() + diffToMonday);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        }
+        case 'month': {
+          // Start from the 1st of the current month
+          startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        }
+        case 'quarter': {
+          // Start from the 1st day of the current quarter
+          const currentMonth = endDate.getMonth(); // 0-indexed
+          const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+          startDate = new Date(endDate.getFullYear(), quarterStartMonth, 1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        }
+        case 'year': {
+          // Start from January 1st of the current year
+          startDate = new Date(endDate.getFullYear(), 0, 1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        }
+        default: {
+          // Default to start of current month
+          startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+          startDate.setHours(0, 0, 0, 0);
+        }
+      }
     }
+
+    // Calculate current month date range (for Monthly Income/Expenses cards)
+    const currentMonthStart = new Date();
+    currentMonthStart.setDate(1);
+    currentMonthStart.setHours(0, 0, 0, 0);
+
+    const currentMonthEnd = new Date();
+    currentMonthEnd.setMonth(currentMonthEnd.getMonth() + 1);
+    currentMonthEnd.setDate(0);
+    currentMonthEnd.setHours(23, 59, 59, 999);
 
     // Get accounts
     const accounts = await prisma.account.findMany({
@@ -324,13 +376,24 @@ fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request
       return sum + parseFloat(account.balance);
     }, 0);
 
-    // Get transaction stats for current period
+    // Get transaction stats for selected period
     const currentTransactions = await prisma.transaction.findMany({
       where: {
         userId,
         date: {
           gte: startDate,
           lte: endDate
+        }
+      }
+    });
+
+    // Get transaction stats for current month (for Monthly Income/Expenses cards)
+    const currentMonthTransactions = await prisma.transaction.findMany({
+      where: {
+        userId,
+        date: {
+          gte: currentMonthStart,
+          lte: currentMonthEnd
         }
       }
     });
@@ -351,7 +414,24 @@ fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request
       }
     });
 
-    // Calculate income and expense
+    // Get previous month transactions (for trend calculation)
+    const previousMonthStart = new Date(currentMonthStart);
+    previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
+
+    const previousMonthEnd = new Date(currentMonthEnd);
+    previousMonthEnd.setMonth(previousMonthEnd.getMonth() - 1);
+
+    const previousMonthTransactions = await prisma.transaction.findMany({
+      where: {
+        userId,
+        date: {
+          gte: previousMonthStart,
+          lte: previousMonthEnd
+        }
+      }
+    });
+
+    // Calculate income and expense for selected period
     const currentIncome = currentTransactions
       .filter(t => t.type === 'INCOME')
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
@@ -368,8 +448,25 @@ fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request
       .filter(t => t.type === 'EXPENSE')
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
+    // Calculate income and expense for current month (for Monthly Income/Expenses cards)
+    const monthlyIncome = currentMonthTransactions
+      .filter(t => t.type === 'INCOME')
+      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+    const monthlyExpense = currentMonthTransactions
+      .filter(t => t.type === 'EXPENSE')
+      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+    const previousMonthIncome = previousMonthTransactions
+      .filter(t => t.type === 'INCOME')
+      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+    const previousMonthExpense = previousMonthTransactions
+      .filter(t => t.type === 'EXPENSE')
+      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
     // Calculate balance trend
-    const balanceTrend = previousIncome + previousExpense > 0 
+    const balanceTrend = previousIncome + previousExpense > 0
       ? ((totalBalance - (previousIncome + previousExpense)) / (previousIncome + previousExpense)) * 100
       : 0;
 
@@ -381,7 +478,7 @@ fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request
     // Get monthly data for charts
     const monthlyData = [];
     const months = 6;
-    
+
     for (let i = months - 1; i >= 0; i--) {
       const monthStart = new Date();
       monthStart.setMonth(monthStart.getMonth() - i);
@@ -418,6 +515,43 @@ fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request
       });
     }
 
+    // Calculate Financial Health Score
+    let financialHealthScore = 0;
+
+    // 1. Cash Flow Component (Max 50 points)
+    if (currentIncome > 0) {
+      const savingsRate = (currentIncome - currentExpense) / currentIncome;
+      if (savingsRate >= 0.20) {
+        financialHealthScore += 50; // Excellent saving rate (>20%)
+      } else if (savingsRate > 0) {
+        financialHealthScore += 30 + (savingsRate * 100); // Positive cash flow but low savings
+      } else {
+        financialHealthScore += 10; // Negative cash flow
+      }
+    }
+
+    // 2. Balance/Stability Component (Max 50 points)
+    // Simple heuristic: Do we have enough balance to cover 1 month of expenses?
+    if (currentExpense > 0) {
+      const runway = totalBalance / currentExpense;
+      if (runway >= 6) {
+        financialHealthScore += 50; // 6+ months runway
+      } else if (runway >= 3) {
+        financialHealthScore += 40; // 3-6 months runway
+      } else if (runway >= 1) {
+        financialHealthScore += 30; // 1-3 months runway
+      } else {
+        financialHealthScore += 10; // < 1 month runway
+      }
+    } else if (totalBalance > 0) {
+      // If no expenses yet but has balance
+      financialHealthScore += 30;
+    }
+
+    // Cap at 100
+    financialHealthScore = Math.min(100, Math.round(financialHealthScore));
+
+
     return {
       success: true,
       data: {
@@ -430,8 +564,14 @@ fastify.get('/api/dashboard/stats', { preHandler: authenticate }, async (request
         currentExpense,
         previousIncome,
         previousExpense,
+        // Monthly income/expense for current month (for Monthly Income/Expenses cards)
+        monthlyIncome,
+        monthlyExpense,
+        previousMonthIncome,
+        previousMonthExpense,
         monthlyData,
         netCashFlow: currentIncome - currentExpense,
+        financialHealthScore, // Add score to response
         accounts: accounts.map(account => ({
           ...account,
           balance: parseFloat(account.balance)
@@ -449,12 +589,12 @@ fastify.get('/api/categories', { preHandler: authenticate }, async (request) => 
   try {
     const userId = request.user.id;
     const { includeStats = false, timeRange = 'month' } = request.query;
-    
+
     // Calculate date range
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(endDate.getMonth() - 1);
-    
+
     const categories = await prisma.category.findMany({
       where: { userId },
       include: {
@@ -506,7 +646,7 @@ fastify.get('/api/categories', { preHandler: authenticate }, async (request) => 
         const categoryTotal = categoryTotals.find(ct => ct.categoryId === category.id);
         const totalAmount = parseFloat(categoryTotal?._sum.amount || 0);
         const percentage = totalExpense > 0 ? (totalAmount / totalExpense) * 100 : 0;
-        
+
         return {
           ...category,
           totalAmount,
@@ -618,7 +758,7 @@ fastify.get('/api/transactions', { preHandler: authenticate }, async (request) =
 fastify.post('/api/transactions', { preHandler: authenticate }, async (request, reply) => {
   try {
     const { date, amount, description, type, accountId, categoryId } = request.body;
-    
+
     // Validate required fields
     if (!date || !amount || !type || !accountId) {
       return reply.code(400).send({
@@ -626,7 +766,7 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
         error: 'Missing required fields'
       });
     }
-    
+
     // Validate amount is positive
     if (parseFloat(amount) <= 0) {
       return reply.code(400).send({
@@ -634,7 +774,7 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
         error: 'Amount must be greater than 0'
       });
     }
-    
+
     // Check if account exists and belongs to user
     const account = await prisma.account.findFirst({
       where: {
@@ -642,14 +782,14 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
         userId: request.user.id
       }
     });
-    
+
     if (!account) {
       return reply.code(404).send({
         success: false,
         error: 'Account not found'
       });
     }
-    
+
     // For non-transfer transactions, validate category
     if (type !== 'TRANSFER' && categoryId) {
       const category = await prisma.category.findFirst({
@@ -659,7 +799,7 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
           type: type
         }
       });
-      
+
       if (!category) {
         return reply.code(404).send({
           success: false,
@@ -667,7 +807,7 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
         });
       }
     }
-    
+
     // Create transaction
     const transaction = await prisma.transaction.create({
       data: {
@@ -684,11 +824,11 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
         category: true
       }
     });
-    
+
     // Update account balance
     const numericAmount = parseFloat(amount);
     let newBalance = parseFloat(account.balance.toString());
-    
+
     if (type === 'INCOME') {
       newBalance += numericAmount;
     } else if (type === 'EXPENSE') {
@@ -696,12 +836,12 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
     }
     // TRANSFER doesn't change the balance of the source account
     // (You might want to handle transfers between accounts differently)
-    
+
     await prisma.account.update({
       where: { id: accountId },
       data: { balance: newBalance }
     });
-    
+
     reply.code(201).send({
       success: true,
       message: 'Transaction created successfully',
@@ -710,7 +850,7 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
         amount: numericAmount
       }
     });
-    
+
   } catch (error) {
     fastify.log.error(error);
     reply.code(500).send({
@@ -720,22 +860,189 @@ fastify.post('/api/transactions', { preHandler: authenticate }, async (request, 
   }
 });
 
+// Update transaction endpoint
+fastify.put('/api/transactions/:id', { preHandler: authenticate }, async (request, reply) => {
+  try {
+    const { id } = request.params;
+    const { date, amount, description, type, accountId, categoryId } = request.body;
+    const userId = request.user.id;
+
+    // Find existing transaction
+    const existingTransaction = await prisma.transaction.findFirst({
+      where: { id, userId },
+      include: { account: true }
+    });
+
+    if (!existingTransaction) {
+      return reply.code(404).send({
+        success: false,
+        error: 'Transaction not found'
+      });
+    }
+
+    // If account is changing, find the new account
+    let newAccount = existingTransaction.account;
+    if (accountId && accountId !== existingTransaction.accountId) {
+      newAccount = await prisma.account.findFirst({
+        where: { id: accountId, userId }
+      });
+
+      if (!newAccount) {
+        return reply.code(404).send({
+          success: false,
+          error: 'New account not found'
+        });
+      }
+    }
+
+    // Revert old transaction's effect on the old account's balance
+    const oldAmount = parseFloat(existingTransaction.amount.toString());
+    let oldAccountBalance = parseFloat(existingTransaction.account.balance.toString());
+
+    if (existingTransaction.type === 'INCOME') {
+      oldAccountBalance -= oldAmount;
+    } else if (existingTransaction.type === 'EXPENSE') {
+      oldAccountBalance += oldAmount;
+    }
+
+    // Update old account balance if it's different from the new one
+    if (existingTransaction.accountId !== accountId) {
+      await prisma.account.update({
+        where: { id: existingTransaction.accountId },
+        data: { balance: oldAccountBalance }
+      });
+    }
+
+    // Apply new transaction's effect on the new account's balance
+    const newAmount = amount ? parseFloat(amount) : oldAmount;
+    const newType = type || existingTransaction.type;
+    let newBalance;
+
+    if (existingTransaction.accountId === accountId) {
+      // Same account, start from reverted balance
+      newBalance = oldAccountBalance;
+    } else {
+      // Different account, start from current balance
+      newBalance = parseFloat(newAccount.balance.toString());
+    }
+
+    if (newType === 'INCOME') {
+      newBalance += newAmount;
+    } else if (newType === 'EXPENSE') {
+      newBalance -= newAmount;
+    }
+
+    // Update the transaction and new account balance
+    const updatedTransaction = await prisma.transaction.update({
+      where: { id },
+      data: {
+        ...(date && { date: new Date(date) }),
+        ...(amount && { amount: newAmount }),
+        ...(description !== undefined && { description }),
+        ...(type && { type: newType }),
+        ...(accountId && { accountId }),
+        ...(categoryId !== undefined && { categoryId: newType !== 'TRANSFER' ? categoryId : null }),
+      },
+      include: {
+        account: true,
+        category: true
+      }
+    });
+
+    await prisma.account.update({
+      where: { id: accountId || existingTransaction.accountId },
+      data: { balance: newBalance }
+    });
+
+    reply.send({
+      success: true,
+      message: 'Transaction updated successfully',
+      data: {
+        ...updatedTransaction,
+        amount: newAmount
+      }
+    });
+
+  } catch (error) {
+    fastify.log.error(error);
+    reply.code(500).send({
+      success: false,
+      error: 'Failed to update transaction'
+    });
+  }
+});
+
+// Delete transaction endpoint
+fastify.delete('/api/transactions/:id', { preHandler: authenticate }, async (request, reply) => {
+  try {
+    const { id } = request.params;
+    const userId = request.user.id;
+
+    // Find transaction to delete
+    const transaction = await prisma.transaction.findFirst({
+      where: { id, userId },
+      include: { account: true }
+    });
+
+    if (!transaction) {
+      return reply.code(404).send({
+        success: false,
+        error: 'Transaction not found'
+      });
+    }
+
+    // Revert transaction's effect on account balance
+    const amount = Number(transaction.amount);
+    let balance = Number(transaction.account.balance);
+
+    if (transaction.type === 'INCOME') {
+      balance -= amount;
+    } else if (transaction.type === 'EXPENSE') {
+      balance += amount;
+    }
+
+    console.log(`[DELETE] Transaction ${id} - Reverting amount ${amount}, New balance: ${balance}`);
+
+    // Delete transaction and update account balance
+    await prisma.$transaction([
+      prisma.transaction.delete({ where: { id } }),
+      prisma.account.update({
+        where: { id: transaction.accountId },
+        data: { balance }
+      })
+    ]);
+
+    reply.send({
+      success: true,
+      message: 'Transaction deleted successfully'
+    });
+
+  } catch (error) {
+    fastify.log.error('Failed to delete transaction:', error);
+    reply.code(500).send({
+      success: false,
+      error: 'Failed to delete transaction',
+      details: error.message
+    });
+  }
+});
+
 // Get categories by type
 fastify.get('/api/categories/type', { preHandler: authenticate }, async (request) => {
   try {
     const userId = request.user.id;
     const { type, includeStats } = request.query;
-    
+
     const where = {
       userId,
       ...(type && { type })
     };
-    
+
     const categories = await prisma.category.findMany({
       where,
       orderBy: { name: 'asc' }
     });
-    
+
     return {
       success: true,
       data: {
@@ -754,8 +1061,8 @@ fastify.get('/api/categories/type', { preHandler: authenticate }, async (request
 fastify.get('/api/accounts', { preHandler: authenticate }, async (request, reply) => {
   try {
     const userId = request.user.id;
-    const { 
-      type, 
+    const {
+      type,
       sort = 'name:asc',
       includeStats = false,
       limit = 100,
@@ -834,8 +1141,8 @@ fastify.get('/api/accounts', { preHandler: authenticate }, async (request, reply
 
     // Calculate percentages
     Object.keys(typeBreakdown).forEach(type => {
-      typeBreakdown[type].percentage = totalBalance > 0 
-        ? (typeBreakdown[type].totalBalance / totalBalance) * 100 
+      typeBreakdown[type].percentage = totalBalance > 0
+        ? (typeBreakdown[type].totalBalance / totalBalance) * 100
         : 0;
     });
 
@@ -1252,7 +1559,7 @@ fastify.patch('/api/accounts/:id/balance', { preHandler: authenticate }, async (
     if (note) {
       const oldBalance = parseFloat(account.balance.toString());
       const adjustmentAmount = balance - oldBalance;
-      
+
       await prisma.transaction.create({
         data: {
           date: new Date(),

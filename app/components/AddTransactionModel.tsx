@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  X, 
-  Plus, 
-  Calendar, 
-  FileText, 
+import {
+  X,
+  Plus,
+  Calendar,
+  FileText,
   Tag,
   CreditCard,
   TrendingUp,
@@ -14,20 +14,23 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle,
-  Banknote
+  Banknote,
+  Edit2
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import Link from 'next/link';
 
 const NairaIcon = () => (
-  <svg 
-    width="16" 
-    height="16" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
     strokeLinejoin="round"
   >
     <path d="M12 2L12 22" />
@@ -78,6 +81,7 @@ interface AddTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultType?: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  initialData?: TransactionFormData & { id?: string };
 }
 
 // API response interfaces
@@ -114,21 +118,40 @@ interface TransactionResponse {
   };
 }
 
-export default function AddTransactionModal({ 
-  isOpen, 
-  onClose, 
-  defaultType = 'EXPENSE' 
+export default function AddTransactionModal({
+  isOpen,
+  onClose,
+  defaultType = 'EXPENSE',
+  initialData
 }: AddTransactionModalProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<TransactionFormData>({
-    type: defaultType,
-    amount: '',
-    description: '',
-    date: new Date().toISOString().split('T')[0],
-    accountId: '',
-    categoryId: '',
-    toAccountId: ''
+    type: initialData?.type || defaultType,
+    amount: initialData?.amount || '',
+    description: initialData?.description || '',
+    date: initialData?.date || new Date().toISOString().split('T')[0],
+    accountId: initialData?.accountId || '',
+    categoryId: initialData?.categoryId || '',
+    toAccountId: initialData?.toAccountId || ''
   });
+
+
+  // Sync formData with initialData when modal opens
+  useEffect(() => {
+    if (isOpen && initialData) {
+      setFormData({
+        type: initialData.type,
+        amount: initialData.amount,
+        description: initialData.description,
+        date: initialData.date,
+        accountId: initialData.accountId,
+        categoryId: initialData.categoryId,
+        toAccountId: initialData.toAccountId || ''
+      });
+    } else if (isOpen && !initialData) {
+      resetForm();
+    }
+  }, [isOpen, initialData]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Fetch accounts - Updated to match new API structure
@@ -159,7 +182,7 @@ export default function AddTransactionModal({
         amount: parseFloat(transactionData.amount),
         date: new Date(transactionData.date).toISOString()
       };
-      
+
       // For transfers, include toAccountId and handle category differently
       if (transactionData.type === 'TRANSFER') {
         payload.toAccountId = transactionData.toAccountId;
@@ -168,7 +191,10 @@ export default function AddTransactionModal({
           delete payload.categoryId;
         }
       }
-      
+
+      if (initialData?.id) {
+        return api.put(`/transactions/${initialData.id}`, payload);
+      }
       return api.post('/transactions', payload);
     },
     onSuccess: (response: TransactionResponse) => {
@@ -178,18 +204,18 @@ export default function AddTransactionModal({
       queryClient.invalidateQueries({ queryKey: ['recent-transactions'] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['category-breakdown'] });
-      
+
       // Update accounts cache with new balance
       if (response.data?.account) {
         queryClient.setQueryData(['accounts'], (oldData: AccountsResponse | undefined) => {
           if (!oldData?.data?.accounts) return oldData;
-          
-          const updatedAccounts = oldData.data.accounts.map(account => 
-            account.id === response.data.account.id 
+
+          const updatedAccounts = oldData.data.accounts.map(account =>
+            account.id === response.data.account.id
               ? { ...account, balance: response.data.account.balance }
               : account
           );
-          
+
           return {
             ...oldData,
             data: {
@@ -203,7 +229,7 @@ export default function AddTransactionModal({
           };
         });
       }
-      
+
       // Reset form and close modal
       resetForm();
       onClose();
@@ -256,7 +282,7 @@ export default function AddTransactionModal({
   // Handle form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -289,8 +315,8 @@ export default function AddTransactionModal({
 
   // Handle type change
   const handleTypeChange = (type: 'INCOME' | 'EXPENSE' | 'TRANSFER') => {
-    setFormData(prev => ({ 
-      ...prev, 
+    setFormData(prev => ({
+      ...prev,
       type,
       categoryId: '', // Reset category when type changes
       toAccountId: '' // Reset destination account when type changes
@@ -317,9 +343,9 @@ export default function AddTransactionModal({
   // Auto-select first account if none selected - Updated to use extracted accounts
   useEffect(() => {
     if (accounts.length > 0 && !formData.accountId) {
-      setFormData(prev => ({ 
-        ...prev, 
-        accountId: accounts[0].id 
+      setFormData(prev => ({
+        ...prev,
+        accountId: accounts[0].id
       }));
     }
   }, [accounts, formData.accountId]);
@@ -327,9 +353,9 @@ export default function AddTransactionModal({
   // Auto-select first category if none selected and categories exist - Updated to use extracted categories
   useEffect(() => {
     if (categories.length > 0 && !formData.categoryId && formData.type !== 'TRANSFER') {
-      setFormData(prev => ({ 
-        ...prev, 
-        categoryId: categories[0].id 
+      setFormData(prev => ({
+        ...prev,
+        categoryId: categories[0].id
       }));
     }
   }, [categories, formData.categoryId, formData.type]);
@@ -337,9 +363,9 @@ export default function AddTransactionModal({
   // Auto-select first destination account if none selected for transfers
   useEffect(() => {
     if (formData.type === 'TRANSFER' && availableDestinationAccounts.length > 0 && !formData.toAccountId) {
-      setFormData(prev => ({ 
-        ...prev, 
-        toAccountId: availableDestinationAccounts[0].id 
+      setFormData(prev => ({
+        ...prev,
+        toAccountId: availableDestinationAccounts[0].id
       }));
     }
   }, [formData.type, availableDestinationAccounts, formData.toAccountId]);
@@ -385,7 +411,9 @@ export default function AddTransactionModal({
                   <div className="p-2 bg-white/20 rounded-lg">
                     <Plus className="w-5 h-5 text-white" />
                   </div>
-                  <h2 className="text-xl font-bold text-white">New Transaction</h2>
+                  <h2 className="text-xl font-bold text-white">
+                    {initialData?.id ? 'Edit Transaction' : 'New Transaction'}
+                  </h2>
                 </div>
                 <button
                   onClick={onClose}
@@ -402,11 +430,10 @@ export default function AddTransactionModal({
                 <button
                   type="button"
                   onClick={() => handleTypeChange('INCOME')}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                    formData.type === 'INCOME'
-                      ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${formData.type === 'INCOME'
+                    ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   <TrendingUp className="w-4 h-4" />
                   Income
@@ -414,11 +441,10 @@ export default function AddTransactionModal({
                 <button
                   type="button"
                   onClick={() => handleTypeChange('EXPENSE')}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                    formData.type === 'EXPENSE'
-                      ? 'bg-rose-50 text-rose-700 border-2 border-rose-500'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${formData.type === 'EXPENSE'
+                    ? 'bg-rose-50 text-rose-700 border-2 border-rose-500'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   <TrendingDown className="w-4 h-4" />
                   Expense
@@ -426,11 +452,10 @@ export default function AddTransactionModal({
                 <button
                   type="button"
                   onClick={() => handleTypeChange('TRANSFER')}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                    formData.type === 'TRANSFER'
-                      ? 'bg-blue-50 text-blue-700 border-2 border-blue-500'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${formData.type === 'TRANSFER'
+                    ? 'bg-blue-50 text-blue-700 border-2 border-blue-500'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   <RefreshCw className="w-4 h-4" />
                   Transfer
@@ -483,11 +508,9 @@ export default function AddTransactionModal({
                     min="0.01"
                     value={formData.amount}
                     onChange={(e) => handleInputChange('amount', e.target.value)}
-                    className={`block w-full pl-8 pr-4 py-3 border ${
-                      errors.amount ? 'border-rose-300' : 'border-gray-300'
-                    } rounded-xl focus:outline-none focus:ring-2 ${
-                      errors.amount ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
-                    } focus:border-transparent`}
+                    className={`block w-full pl-8 pr-4 py-3 border ${errors.amount ? 'border-rose-300' : 'border-gray-300'
+                      } rounded-xl focus:outline-none focus:ring-2 ${errors.amount ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
+                      } focus:border-transparent`}
                     placeholder="0.00"
                     disabled={createTransactionMutation.isPending}
                   />
@@ -509,11 +532,9 @@ export default function AddTransactionModal({
                   type="date"
                   value={formData.date}
                   onChange={(e) => handleInputChange('date', e.target.value)}
-                  className={`block w-full px-4 py-3 border ${
-                    errors.date ? 'border-rose-300' : 'border-gray-300'
-                  } rounded-xl focus:outline-none focus:ring-2 ${
-                    errors.date ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
-                  } focus:border-transparent`}
+                  className={`block w-full px-4 py-3 border ${errors.date ? 'border-rose-300' : 'border-gray-300'
+                    } rounded-xl focus:outline-none focus:ring-2 ${errors.date ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
+                    } focus:border-transparent`}
                   disabled={createTransactionMutation.isPending}
                   max={new Date().toISOString().split('T')[0]}
                 />
@@ -533,11 +554,9 @@ export default function AddTransactionModal({
                 <select
                   value={formData.accountId}
                   onChange={(e) => handleInputChange('accountId', e.target.value)}
-                  className={`block w-full px-4 py-3 border ${
-                    errors.accountId ? 'border-rose-300' : 'border-gray-300'
-                  } rounded-xl focus:outline-none focus:ring-2 ${
-                    errors.accountId ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
-                  } focus:border-transparent`}
+                  className={`block w-full px-4 py-3 border ${errors.accountId ? 'border-rose-300' : 'border-gray-300'
+                    } rounded-xl focus:outline-none focus:ring-2 ${errors.accountId ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
+                    } focus:border-transparent`}
                   disabled={accountsLoading || createTransactionMutation.isPending}
                 >
                   <option value="">Select an account</option>
@@ -572,11 +591,9 @@ export default function AddTransactionModal({
                   <select
                     value={formData.toAccountId}
                     onChange={(e) => handleInputChange('toAccountId', e.target.value)}
-                    className={`block w-full px-4 py-3 border ${
-                      errors.toAccountId ? 'border-rose-300' : 'border-gray-300'
-                    } rounded-xl focus:outline-none focus:ring-2 ${
-                      errors.toAccountId ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
-                    } focus:border-transparent`}
+                    className={`block w-full px-4 py-3 border ${errors.toAccountId ? 'border-rose-300' : 'border-gray-300'
+                      } rounded-xl focus:outline-none focus:ring-2 ${errors.toAccountId ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
+                      } focus:border-transparent`}
                     disabled={accountsLoading || createTransactionMutation.isPending || !formData.accountId}
                   >
                     <option value="">Select destination account</option>
@@ -606,11 +623,9 @@ export default function AddTransactionModal({
                 <select
                   value={formData.categoryId}
                   onChange={(e) => handleInputChange('categoryId', e.target.value)}
-                  className={`block w-full px-4 py-3 border ${
-                    errors.categoryId ? 'border-rose-300' : 'border-gray-300'
-                  } rounded-xl focus:outline-none focus:ring-2 ${
-                    errors.categoryId ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
-                  } focus:border-transparent`}
+                  className={`block w-full px-4 py-3 border ${errors.categoryId ? 'border-rose-300' : 'border-gray-300'
+                    } rounded-xl focus:outline-none focus:ring-2 ${errors.categoryId ? 'focus:ring-rose-500' : 'focus:ring-blue-500'
+                    } focus:border-transparent`}
                   disabled={categoriesLoading || createTransactionMutation.isPending}
                 >
                   <option value="">
@@ -630,7 +645,7 @@ export default function AddTransactionModal({
                 )}
                 {!categoriesLoading && categories.length === 0 && (
                   <p className="mt-2 text-sm text-amber-600">
-                    {formData.type === 'TRANSFER' 
+                    {formData.type === 'TRANSFER'
                       ? 'No transfer types available. You can add transfer categories in settings.'
                       : `No categories found for ${formData.type.toLowerCase()}. Please create categories first.`
                     }
@@ -668,8 +683,8 @@ export default function AddTransactionModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={createTransactionMutation.isPending || 
-                    accounts.length === 0 || 
+                  disabled={createTransactionMutation.isPending ||
+                    accounts.length === 0 ||
                     (formData.type === 'TRANSFER' && availableDestinationAccounts.length === 0) ||
                     (formData.type !== 'TRANSFER' && categories.length === 0)}
                   className="cursor-pointer flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-medium rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -677,12 +692,12 @@ export default function AddTransactionModal({
                   {createTransactionMutation.isPending ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      Adding...
+                      {initialData?.id ? 'Updating...' : 'Adding...'}
                     </>
                   ) : (
                     <>
-                      <Plus className="w-4 h-4" />
-                      Add Transaction
+                      {initialData?.id ? <Edit2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                      {initialData?.id ? 'Update Transaction' : 'Add Transaction'}
                     </>
                   )}
                 </button>

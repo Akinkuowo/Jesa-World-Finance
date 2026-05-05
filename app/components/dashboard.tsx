@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import AddTransactionModal from './AddTransactionModel'
-import { 
-  CreditCard, 
-  TrendingUp, 
+import {
+  CreditCard,
+  TrendingUp,
   TrendingDown,
   Wallet,
   Calendar,
@@ -23,12 +23,12 @@ import {
   Sparkles,
   LucideIcon
 } from 'lucide-react';
-import { 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  PieChart, 
-  Pie, 
+import {
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
   Cell,
   Area,
   AreaChart,
@@ -39,17 +39,18 @@ import {
 import { api } from '@/lib/api';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
+import Link from 'next/link';
 
 // Custom Naira icon component (use a different name to avoid conflict)
 const NairaIcon = () => (
-  <svg 
-    width="16" 
-    height="16" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
     strokeLinejoin="round"
   >
     <path d="M12 2L12 22" />
@@ -71,12 +72,17 @@ interface DashboardData {
   currentExpense?: number;
   previousIncome?: number;
   previousExpense?: number;
+  monthlyIncome?: number;
+  monthlyExpense?: number;
+  previousMonthIncome?: number;
+  previousMonthExpense?: number;
   monthlyData?: Array<{
     month: string;
     income: number;
     expense: number;
   }>;
   netCashFlow?: number;
+  financialHealthScore?: number;
   accounts?: Array<{
     id: string;
     name: string;
@@ -163,6 +169,7 @@ interface CategoryChartData {
   value: number;
   color: string;
   percentage: number;
+  [key: string]: any;
 }
 
 interface AccountChartData {
@@ -173,12 +180,12 @@ interface AccountChartData {
 }
 
 // Custom Tooltip component for recharts with Naira formatting
-const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
         <p className="font-medium text-gray-900">{`Month: ${label}`}</p>
-        {payload.map((entry, index) => (
+        {payload.map((entry: any, index: number) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
             {`${entry.name}: ₦${entry.value?.toLocaleString()}`}
           </p>
@@ -194,27 +201,41 @@ export default function Dashboard() {
   const [showBalance, setShowBalance] = useState<boolean>(true);
   const [currency, setCurrency] = useState<string>('NGN');
   const [showAddTransaction, setShowAddTransaction] = useState(false);
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [customDateMode, setCustomDateMode] = useState<'month' | 'range'>('month');
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+
+  // Build query parameters
+  const buildQueryParams = () => {
+    let params = `timeRange=${timeRange}`;
+    if (timeRange === 'custom') {
+      if (customDateMode === 'month' && selectedMonth) {
+        params += `&selectedMonth=${selectedMonth}`;
+      } else if (customDateMode === 'range' && customStartDate && customEndDate) {
+        params += `&customStartDate=${customStartDate}&customEndDate=${customEndDate}`;
+      }
+    }
+    return params;
+  };
 
   // Fetch all dashboard data
-  const { 
-    data: dashboardData, 
-    isLoading, 
+  const {
+    data: dashboardData,
+    isLoading,
     isError,
     error,
-    refetch 
+    refetch
   } = useQuery<{ data: DashboardData }>({
-    queryKey: ['dashboard', timeRange],
-    queryFn: () => api.get(`/dashboard/stats?timeRange=${timeRange}`),
+    queryKey: ['dashboard', timeRange, selectedMonth, customStartDate, customEndDate],
+    queryFn: () => api.get(`/dashboard/stats?${buildQueryParams()}`),
     retry: 2,
     refetchOnWindowFocus: true,
     staleTime: 60000,
   });
 
-  // Fetch transactions summary
-  const { data: summaryData, isLoading: summaryLoading } = useQuery<{ data: SummaryData }>({
-    queryKey: ['transactions-summary', timeRange],
-    queryFn: () => api.get(`/transactions/summary?timeRange=${timeRange}`),
-  });
+
 
   // Fetch accounts
   const { data: accountsData, isLoading: accountsLoading } = useQuery<{ data: { accounts: Account[] } }>({
@@ -223,20 +244,20 @@ export default function Dashboard() {
   });
 
   // Fetch recent transactions
-  const { data: transactionsData, isLoading: transactionsLoading } = useQuery<{ 
-    data: { 
-      transactions: Transaction[] 
-    } 
+  const { data: transactionsData, isLoading: transactionsLoading } = useQuery<{
+    data: {
+      transactions: Transaction[]
+    }
   }>({
     queryKey: ['recent-transactions'],
     queryFn: () => api.get('/transactions?limit=10&sort=date:desc'),
   });
 
   // Fetch category breakdown
-  const { data: categoryData, isLoading: categoryLoading } = useQuery<{ 
-    data: { 
-      categories: Category[] 
-    } 
+  const { data: categoryData, isLoading: categoryLoading } = useQuery<{
+    data: {
+      categories: Category[]
+    }
   }>({
     queryKey: ['category-breakdown', timeRange],
     queryFn: () => api.get(`/categories?includeStats=true&timeRange=${timeRange}`),
@@ -264,7 +285,7 @@ export default function Dashboard() {
 
   // Prepare chart data from backend
   const prepareIncomeExpenseData = (): ChartDataItem[] => {
-    if (!summaryData?.data?.monthlyData) {
+    if (!dashboardData?.data?.monthlyData) {
       return Array.from({ length: 6 }, (_, i) => {
         const date = new Date();
         date.setMonth(date.getMonth() - (5 - i));
@@ -277,7 +298,12 @@ export default function Dashboard() {
       });
     }
 
-    return summaryData.data.monthlyData.map(item => ({
+    // Sort by month to ensure correct order
+    const sortedData = [...dashboardData.data.monthlyData].sort((a, b) =>
+      new Date(a.month).getTime() - new Date(b.month).getTime()
+    );
+
+    return sortedData.map(item => ({
       month: format(new Date(item.month), 'MMM'),
       income: parseFloat(item.income.toString()) || 0,
       expense: parseFloat(item.expense.toString()) || 0,
@@ -333,11 +359,11 @@ export default function Dashboard() {
   const statsCards: StatsCard[] = [
     {
       title: 'Total Balance',
-      value: showBalance 
+      value: showBalance
         ? formatCurrency(dashboardData?.data?.totalBalance || 0)
         : '••••••',
       icon: NairaIcon,
-      trend: dashboardData?.data?.balanceTrend 
+      trend: dashboardData?.data?.balanceTrend
         ? { value: dashboardData.data.balanceTrend, direction: parseFloat(dashboardData.data.balanceTrend) >= 0 ? 'up' : 'down' }
         : { value: '0.0', direction: 'neutral' },
       color: 'from-emerald-500 to-teal-600',
@@ -349,42 +375,50 @@ export default function Dashboard() {
     },
     {
       title: 'Monthly Income',
-      value: formatCurrency(summaryData?.data?.income || 0),
+      value: formatCurrency(dashboardData?.data?.currentIncome || 0),
       icon: TrendingUp,
-      trend: calculateTrend(summaryData?.data?.income || 0, summaryData?.data?.previousIncome || 0),
+      trend: calculateTrend(dashboardData?.data?.currentIncome || 0, dashboardData?.data?.previousIncome || 0),
       color: 'from-blue-500 to-indigo-600',
       bgColor: 'bg-gradient-to-br from-blue-50 to-indigo-100',
       iconColor: 'text-blue-600',
       prefix: '',
-      description: 'This month',
-      loading: summaryLoading
+      description: timeRange === 'custom' && selectedMonth
+        ? format(new Date(selectedMonth + '-01'), 'MMMM yyyy')
+        : timeRange === 'custom' && customStartDate && customEndDate
+          ? `${format(new Date(customStartDate), 'dd MMM yyyy')} - ${format(new Date(customEndDate), 'dd MMM yyyy')}`
+          : 'This period',
+      loading: isLoading
     },
     {
       title: 'Monthly Expenses',
-      value: formatCurrency(summaryData?.data?.expense || 0),
+      value: formatCurrency(dashboardData?.data?.currentExpense || 0),
       icon: TrendingDown,
-      trend: calculateTrend(summaryData?.data?.expense || 0, summaryData?.data?.previousExpense || 0),
+      trend: calculateTrend(dashboardData?.data?.currentExpense || 0, dashboardData?.data?.previousExpense || 0),
       color: 'from-rose-500 to-red-600',
       bgColor: 'bg-gradient-to-br from-rose-50 to-red-100',
       iconColor: 'text-rose-600',
       prefix: '',
-      description: 'This month',
-      loading: summaryLoading
+      description: timeRange === 'custom' && selectedMonth
+        ? format(new Date(selectedMonth + '-01'), 'MMMM yyyy')
+        : timeRange === 'custom' && customStartDate && customEndDate
+          ? `${format(new Date(customStartDate), 'dd MMM yyyy')} - ${format(new Date(customEndDate), 'dd MMM yyyy')}`
+          : 'This period',
+      loading: isLoading
     },
     {
       title: 'Net Cash Flow',
-      value: formatCurrency((summaryData?.data?.income || 0) - (summaryData?.data?.expense || 0)),
+      value: formatCurrency(dashboardData?.data?.netCashFlow || 0),
       icon: Activity,
       trend: calculateTrend(
-        (summaryData?.data?.income || 0) - (summaryData?.data?.expense || 0),
-        (summaryData?.data?.previousIncome || 0) - (summaryData?.data?.previousExpense || 0)
+        dashboardData?.data?.netCashFlow || 0,
+        (dashboardData?.data?.previousIncome || 0) - (dashboardData?.data?.previousExpense || 0)
       ),
       color: 'from-violet-500 to-purple-600',
       bgColor: 'bg-gradient-to-br from-violet-50 to-purple-100',
       iconColor: 'text-violet-600',
       prefix: '',
       description: 'Income - Expenses',
-      loading: summaryLoading
+      loading: isLoading
     },
   ];
 
@@ -446,7 +480,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <motion.div 
+      <motion.div
         className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-4 md:p-6"
         initial="hidden"
         animate="visible"
@@ -468,7 +502,7 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <div className="relative">
                 <select
@@ -485,7 +519,7 @@ export default function Dashboard() {
                   <NairaIcon />
                 </div>
               </div>
-              
+
               <button
                 onClick={() => setShowBalance(!showBalance)}
                 className="p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors"
@@ -493,7 +527,7 @@ export default function Dashboard() {
               >
                 {showBalance ? <EyeOff className="w-5 h-5 text-gray-600" /> : <Eye className="w-5 h-5 text-gray-600" />}
               </button>
-              
+
               <button
                 onClick={() => refetch()}
                 className="p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-2"
@@ -502,8 +536,8 @@ export default function Dashboard() {
                 <RefreshCw className={`w-5 h-5 text-gray-600 ${isLoading ? 'animate-spin' : ''}`} />
                 <span className="hidden md:inline text-sm font-medium">Refresh</span>
               </button>
-              
-              <button 
+
+              <button
                 onClick={() => setShowAddTransaction(true)}
                 className="cursor-pointer px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium flex items-center gap-2 shadow-lg shadow-blue-500/20"
               >
@@ -529,22 +563,102 @@ export default function Dashboard() {
               ].map((range) => (
                 <button
                   key={range.value}
-                  onClick={() => setTimeRange(range.value)}
-                  className={`cursor-pointer px-5 py-2.5 rounded-xl font-medium transition-all duration-200 ${
-                    timeRange === range.value
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                      : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400'
-                  }`}
+                  onClick={() => {
+                    if (range.value === 'custom') {
+                      setShowCustomDatePicker(true);
+                    } else {
+                      setTimeRange(range.value);
+                    }
+                  }}
+                  className={`cursor-pointer px-5 py-2.5 rounded-xl font-medium transition-all duration-200 ${timeRange === range.value
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400'
+                    }`}
                 >
                   {range.label}
                 </button>
               ))}
             </div>
+            {/* Display selected custom date */}
+            {timeRange === 'custom' && (
+              <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+                <span className="text-sm font-medium text-blue-700">
+                  {customDateMode === 'month' && selectedMonth
+                    ? format(new Date(selectedMonth + '-01'), 'MMMM yyyy')
+                    : customDateMode === 'range' && customStartDate && customEndDate
+                      ? `${format(new Date(customStartDate), 'dd MMM yyyy')} - ${format(new Date(customEndDate), 'dd MMM yyyy')}`
+                      : 'Select dates'}
+                </span>
+              </div>
+            )}
           </div>
         </motion.div>
 
+        {/* Financial Health Score Banner */}
+        <motion.div
+          className="mb-8 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-xl p-6 text-white relative overflow-hidden"
+          variants={itemVariants}
+        >
+          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/20 rounded-full backdrop-blur-sm">
+                <Target className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold mb-1">Financial Health Score</h2>
+                <p className="text-blue-100">Based on your spending habits, savings, and account diversity.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <span className="text-sm font-medium text-blue-200 uppercase tracking-wider block mb-1">Current Score</span>
+                <span className="text-4xl font-bold">{dashboardData?.data?.financialHealthScore || 0}/100</span>
+              </div>
+              <div className="w-20 h-20 rounded-full border-4 border-white/30 flex items-center justify-center relative">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle
+                    className="text-white/10"
+                    strokeWidth="4"
+                    stroke="currentColor"
+                    fill="transparent"
+                    r="36"
+                    cx="40"
+                    cy="40"
+                  />
+                  <circle
+                    className="text-white transition-all duration-1000 ease-out"
+                    strokeWidth="4"
+                    strokeDasharray={226}
+                    strokeDashoffset={226 - (226 * (dashboardData?.data?.financialHealthScore || 0)) / 100}
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    fill="transparent"
+                    r="36"
+                    cx="40"
+                    cy="40"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-lg font-bold">
+                    {dashboardData?.data?.financialHealthScore ?
+                      (dashboardData.data.financialHealthScore >= 80 ? 'A+' :
+                        dashboardData.data.financialHealthScore >= 60 ? 'B' :
+                          dashboardData.data.financialHealthScore >= 40 ? 'C' : 'D')
+                      : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Decorative background elements */}
+          <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-purple-500/20 rounded-full blur-2xl"></div>
+        </motion.div>
+
         {/* Stats Grid */}
-        <motion.div 
+        <motion.div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8"
           variants={containerVariants}
         >
@@ -563,15 +677,14 @@ export default function Dashboard() {
                     <card.icon className={`w-7 h-7 ${card.iconColor}`} />
                   )}
                 </div>
-                
+
                 <div className="text-right">
-                  <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                    card.trend.direction === 'up' 
-                      ? 'bg-emerald-50 text-emerald-700' 
-                      : card.trend.direction === 'down'
+                  <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${card.trend.direction === 'up'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : card.trend.direction === 'down'
                       ? 'bg-rose-50 text-rose-700'
                       : 'bg-gray-50 text-gray-700'
-                  }`}>
+                    }`}>
                     {card.trend.direction === 'up' ? (
                       <ArrowUpRight className="w-4 h-4" />
                     ) : card.trend.direction === 'down' ? (
@@ -581,7 +694,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="mb-2">
                 <p className="text-gray-500 text-sm font-medium mb-1">{card.title}</p>
                 <div className="flex items-baseline gap-2">
@@ -594,15 +707,15 @@ export default function Dashboard() {
                   </h3>
                 </div>
               </div>
-              
+
               <p className="text-gray-400 text-sm">{card.description}</p>
-              
+
               <div className="mt-6 pt-6 border-t border-gray-100">
                 <div className={`h-2 rounded-full overflow-hidden bg-gray-100`}>
-                  <div 
+                  <div
                     className={`h-full ${card.trend.direction === 'up' ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                    style={{ 
-                      width: `${Math.min(100, Math.max(0, parseFloat(card.trend.value) * 10))}%` 
+                    style={{
+                      width: `${Math.min(100, Math.max(0, parseFloat(card.trend.value) * 10))}%`
                     }}
                   ></div>
                 </div>
@@ -614,7 +727,7 @@ export default function Dashboard() {
         {/* Charts Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Income vs Expense Chart */}
-          <motion.div 
+          <motion.div
             className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6"
             variants={itemVariants}
           >
@@ -634,38 +747,38 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-            
+
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={prepareIncomeExpenseData()}>
                   <defs>
                     <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis 
-                    dataKey="month" 
+                  <XAxis
+                    dataKey="month"
                     stroke="#9ca3af"
                     fontSize={12}
                   />
-                  <YAxis 
+                  <YAxis
                     stroke="#9ca3af"
                     fontSize={12}
                     tickFormatter={(value: number) => `₦${value / 1000}k`}
                   />
-                  <Tooltip 
+                  <Tooltip
                     content={<CustomTooltip />}
                     formatter={(value: number | undefined) => {
                       if (value === undefined) return ['₦0.00', 'Amount'];
                       return [formatCurrency(value), 'Amount'];
                     }}
-                    contentStyle={{ 
+                    contentStyle={{
                       backgroundColor: 'white',
                       border: '1px solid #e5e7eb',
                       borderRadius: '12px',
@@ -674,22 +787,22 @@ export default function Dashboard() {
                     }}
                     labelFormatter={(label) => `Month: ${label}`}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="income" 
+                  <Area
+                    type="monotone"
+                    dataKey="income"
                     name="Income"
-                    stroke="#3b82f6" 
-                    fill="url(#colorIncome)" 
+                    stroke="#3b82f6"
+                    fill="url(#colorIncome)"
                     strokeWidth={3}
                     dot={{ stroke: '#3b82f6', strokeWidth: 2, r: 4 }}
                     activeDot={{ r: 6, stroke: '#3b82f6', strokeWidth: 2 }}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="expense" 
+                  <Area
+                    type="monotone"
+                    dataKey="expense"
                     name="Expense"
-                    stroke="#ef4444" 
-                    fill="url(#colorExpense)" 
+                    stroke="#ef4444"
+                    fill="url(#colorExpense)"
                     strokeWidth={3}
                     dot={{ stroke: '#ef4444', strokeWidth: 2, r: 4 }}
                     activeDot={{ r: 6, stroke: '#ef4444', strokeWidth: 2 }}
@@ -700,7 +813,7 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Expense by Category Chart */}
-          <motion.div 
+          <motion.div
             className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6"
             variants={itemVariants}
           >
@@ -713,7 +826,7 @@ export default function Dashboard() {
                 <MoreHorizontal className="w-5 h-5 text-gray-500" />
               </button>
             </div>
-            
+
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -725,19 +838,19 @@ export default function Dashboard() {
                     outerRadius={100}
                     paddingAngle={2}
                     dataKey="value"
-                    label={({ name, percent }: { name: string; percent: number }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }: { name?: string; percent?: number }) => `${name || 'Item'}: ${((percent || 0) * 100).toFixed(0)}%`}
                     labelLine={false}
                   >
                     {prepareCategoryData().map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} stroke="#fff" strokeWidth={2} />
                     ))}
                   </Pie>
-                  <Tooltip 
-                    formatter={(value: number | undefined, props: any) => {
-                      if (value === undefined) return ['₦0.00', props.payload.name];
-                      return [formatCurrency(value), props.payload.name];
+                  <Tooltip
+                    formatter={(value: number | undefined, name: string | undefined, props: any) => {
+                      if (value === undefined) return ['₦0.00', name || 'Category'];
+                      return [formatCurrency(value), name || 'Category'];
                     }}
-                    contentStyle={{ 
+                    contentStyle={{
                       backgroundColor: 'white',
                       border: '1px solid #e5e7eb',
                       borderRadius: '12px',
@@ -745,10 +858,10 @@ export default function Dashboard() {
                       padding: '12px'
                     }}
                   />
-                  <text 
-                    x="50%" 
-                    y="50%" 
-                    textAnchor="middle" 
+                  <text
+                    x="50%"
+                    y="50%"
+                    textAnchor="middle"
                     dominantBaseline="middle"
                     className="text-2xl font-bold text-gray-900"
                   >
@@ -757,11 +870,11 @@ export default function Dashboard() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            
+
             <div className="mt-6 grid grid-cols-2 gap-4">
               {prepareCategoryData().slice(0, 4).map((category, index) => (
                 <div key={index} className="flex items-center gap-3">
-                  <div 
+                  <div
                     className="w-3 h-3 rounded-full"
                     style={{ backgroundColor: category.color }}
                   ></div>
@@ -781,7 +894,7 @@ export default function Dashboard() {
         {/* Accounts Overview & Recent Transactions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Accounts Overview */}
-          <motion.div 
+          <motion.div
             className="lg:col-span-2 bg-white rounded-2xl shadow-xl border border-gray-200 p-6"
             variants={itemVariants}
           >
@@ -794,7 +907,7 @@ export default function Dashboard() {
                 View All <ArrowUpRight className="w-4 h-4" />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               {prepareAccountData().map((account, index) => (
                 <div
@@ -802,13 +915,13 @@ export default function Dashboard() {
                   className="flex items-center justify-between p-4 hover:bg-gray-50 rounded-xl border border-gray-100 transition-colors group"
                 >
                   <div className="flex items-center gap-4">
-                    <div 
+                    <div
                       className="p-3 rounded-xl"
                       style={{ backgroundColor: `${account.color}20` }}
                     >
                       <Wallet className="w-5 h-5" style={{ color: account.color }} />
                     </div>
-                    
+
                     <div>
                       <h4 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                         {account.name}
@@ -816,7 +929,7 @@ export default function Dashboard() {
                       <p className="text-sm text-gray-500 capitalize">{account.type.toLowerCase().replace('_', ' ')}</p>
                     </div>
                   </div>
-                  
+
                   <div className="text-right">
                     <p className="text-lg font-bold text-gray-900">
                       {formatCurrency(account.balance)}
@@ -827,7 +940,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
-              
+
               {prepareAccountData().length === 0 && (
                 <div className="text-center py-12">
                   <Wallet className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -841,7 +954,7 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Recent Transactions */}
-          <motion.div 
+          <motion.div
             className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6"
             variants={itemVariants}
           >
@@ -850,11 +963,11 @@ export default function Dashboard() {
                 <h2 className="text-xl font-bold text-gray-900 mb-1">Recent Transactions</h2>
                 <p className="text-gray-500 text-sm">Latest financial activity</p>
               </div>
-              <button className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
+              <Link href="/transactions" className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
                 View All <ArrowUpRight className="w-4 h-4" />
-              </button>
+              </Link>
             </div>
-            
+
             <div className="space-y-4">
               {transactionsData?.data?.transactions?.slice(0, 5).map((transaction, index) => (
                 <div
@@ -862,13 +975,12 @@ export default function Dashboard() {
                   className="flex items-center justify-between p-4 hover:bg-gray-50 rounded-xl border border-gray-100 transition-colors group"
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`p-2.5 rounded-lg ${
-                      transaction.type === 'INCOME' 
-                        ? 'bg-emerald-50 text-emerald-600'
-                        : transaction.type === 'EXPENSE'
+                    <div className={`p-2.5 rounded-lg ${transaction.type === 'INCOME'
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : transaction.type === 'EXPENSE'
                         ? 'bg-rose-50 text-rose-600'
                         : 'bg-gray-50 text-gray-600'
-                    }`}>
+                      }`}>
                       {transaction.type === 'INCOME' ? (
                         <ArrowUpRight className="w-4 h-4" />
                       ) : transaction.type === 'EXPENSE' ? (
@@ -877,7 +989,7 @@ export default function Dashboard() {
                         <RefreshCw className="w-4 h-4" />
                       )}
                     </div>
-                    
+
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-gray-900 truncate group-hover:text-blue-600 transition-colors">
                         {transaction.description || 'No description'}
@@ -889,15 +1001,14 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="text-right whitespace-nowrap">
-                    <p className={`font-semibold ${
-                      transaction.type === 'INCOME' 
-                        ? 'text-emerald-600'
-                        : transaction.type === 'EXPENSE'
+                    <p className={`font-semibold ${transaction.type === 'INCOME'
+                      ? 'text-emerald-600'
+                      : transaction.type === 'EXPENSE'
                         ? 'text-rose-600'
                         : 'text-gray-600'
-                    }`}>
+                      }`}>
                       {transaction.type === 'INCOME' ? '+' : '-'}{formatCurrency(transaction.amount)}
                     </p>
                     <p className="text-sm text-gray-500">
@@ -917,7 +1028,7 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            
+
             <div className="mt-8 pt-6 border-t border-gray-100">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-500">Quick Stats</span>
@@ -941,7 +1052,7 @@ export default function Dashboard() {
         </div>
 
         {/* Financial Health & Insights */}
-        <motion.div 
+        <motion.div
           className="mt-8 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-8 text-white"
           variants={itemVariants}
         >
@@ -952,7 +1063,7 @@ export default function Dashboard() {
             </div>
             <Sparkles className="w-8 h-8" />
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
               <div className="flex items-center gap-3 mb-3">
@@ -969,7 +1080,7 @@ export default function Dashboard() {
                 <div className="h-full bg-white rounded-full" style={{ width: '25%' }}></div>
               </div>
             </div>
-            
+
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-white/20 rounded-lg">
@@ -985,7 +1096,7 @@ export default function Dashboard() {
                 <div className="h-full bg-emerald-400 rounded-full" style={{ width: '18%' }}></div>
               </div>
             </div>
-            
+
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-white/20 rounded-lg">
@@ -1002,7 +1113,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          
+
           <div className="mt-6 pt-6 border-t border-white/20">
             <div className="flex items-center justify-between">
               <div>
@@ -1017,7 +1128,7 @@ export default function Dashboard() {
         </motion.div>
 
         {/* Quick Stats Footer */}
-        <motion.div 
+        <motion.div
           className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4"
           variants={itemVariants}
         >
@@ -1041,7 +1152,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-500">Avg. Daily Spend</span>
               <span className="text-lg font-bold text-gray-900">
-                {formatCurrency((summaryData?.data?.expense || 0) / 30)}
+                {formatCurrency((dashboardData?.data?.currentExpense || 0) / 30)}
               </span>
             </div>
           </div>
@@ -1055,6 +1166,135 @@ export default function Dashboard() {
           </div>
         </motion.div>
       </motion.div>
+
+      {/* Custom Date Picker Modal */}
+      {showCustomDatePicker && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Custom Date Selection</h2>
+              <button
+                onClick={() => setShowCustomDatePicker(false)}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Mode Selection */}
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setCustomDateMode('month')}
+                className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all ${customDateMode === 'month'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+              >
+                Select Month
+              </button>
+              <button
+                onClick={() => setCustomDateMode('range')}
+                className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all ${customDateMode === 'range'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+              >
+                Date Range
+              </button>
+            </div>
+
+            {/* Month Selector */}
+            {customDateMode === 'month' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Month
+                  </label>
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    max={format(new Date(), 'yyyy-MM')}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Date Range Selector */}
+            {customDateMode === 'range' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    max={format(new Date(), 'yyyy-MM-dd')}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    min={customStartDate}
+                    max={format(new Date(), 'yyyy-MM-dd')}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowCustomDatePicker(false);
+                  setSelectedMonth('');
+                  setCustomStartDate('');
+                  setCustomEndDate('');
+                }}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (customDateMode === 'month' && selectedMonth) {
+                    setTimeRange('custom');
+                    setShowCustomDatePicker(false);
+                  } else if (customDateMode === 'range' && customStartDate && customEndDate) {
+                    if (new Date(customStartDate) <= new Date(customEndDate)) {
+                      setTimeRange('custom');
+                      setShowCustomDatePicker(false);
+                    } else {
+                      alert('End date must be after start date');
+                    }
+                  } else {
+                    alert('Please select a date or date range');
+                  }
+                }}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-medium shadow-lg shadow-blue-500/20"
+              >
+                Apply
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       <AddTransactionModal
         isOpen={showAddTransaction}
